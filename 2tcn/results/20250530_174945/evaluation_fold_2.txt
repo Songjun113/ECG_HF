@@ -1,0 +1,15 @@
+混淆矩阵:
+[[0 2]
+ [7 2]]
+
+分类报告:
+              precision    recall  f1-score   support
+
+           0       0.00      0.00      0.00         2
+           1       0.50      0.22      0.31         9
+
+    accuracy                           0.18        11
+   macro avg       0.25      0.11      0.15        11
+weighted avg       0.41      0.18      0.25        11
+
+AUC: 0.2222
