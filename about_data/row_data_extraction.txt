@@ -1,0 +1,62 @@
+import csv
+import os
+from xml.dom import minidom
+import re
+
+def readXML():
+    xml_filepath = "2023_16例/"   # 存放所有心电xml文件
+    csv_filepath = "xml_csv/"     # 输出csv文件夹
+    if not os.path.exists(csv_filepath):
+        os.makedirs(csv_filepath)
+    file_name_list = os.listdir(xml_filepath)
+
+    # 12导联标签，顺序需和XML中一致
+    leads = ['I', 'II', 'III', 'aVR', 'aVL', 'aVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
+
+    for xml_name in file_name_list:
+        print(f"正在处理: {xml_name}")
+        dom = minidom.parse(os.path.join(xml_filepath, xml_name))
+        digits = dom.getElementsByTagName('digits')
+
+        # 1. 提取采样间隔（只需提取一次即可，假设每个文件的间隔都一样）
+        increment_tags = dom.getElementsByTagName('increment')
+        if increment_tags:
+            interval = float(increment_tags[0].getAttribute("value"))
+        else:
+            interval = 1.0  # 默认值，实际情况请根据你的数据调整
+
+        # 2. 提取scale value
+        scales = []
+        for i in range(12):
+            scale_tags = digits[i].parentNode.getElementsByTagName('scale')
+            if scale_tags:
+                scale = float(scale_tags[0].getAttribute("value"))
+            else:
+                scale = 1.0
+            scales.append(scale)
+
+        # 3. 提取12导联数据并转为整数列表
+        fina_list = []
+        for i in range(12):
+            lead_str = digits[i].firstChild.data
+            lead_values = re.split(r'\s+', lead_str.strip())
+            lead_int = list(map(int, lead_values))
+            # 还原真实电压值
+            lead_real = [x * scales[i] for x in lead_int]
+            fina_list.append(lead_real)
+
+        # 4. 生成时间戳列表（长度与采样点数一致）
+        num_points = len(fina_list[0])
+        time_list = [round(i * interval, 6) for i in range(num_points)]
+
+        # 5. 写入csv文件，首行为表头
+        csv_name = os.path.splitext(xml_name)[0] + ".csv"
+        with open(os.path.join(csv_filepath, csv_name), "w", newline="") as cf:
+            csvfile = csv.writer(cf)
+            csvfile.writerow(['time(s)'] + leads)
+            for idx, row in enumerate(zip(*fina_list)):
+                csvfile.writerow([time_list[idx]] + list(row))
+        print(f"保存文件成功: {csv_name}")
+
+if __name__ == '__main__':
+    readXML()
