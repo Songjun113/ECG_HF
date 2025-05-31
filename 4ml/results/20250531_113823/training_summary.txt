@@ -15,3 +15,33 @@ Classification Report:
    macro avg       0.67      0.70      0.61        36
 weighted avg       0.78      0.61      0.63        36
 
+
+=== XGBoost ===
+Best parameters: {'colsample_bytree': 0.9, 'learning_rate': 0.1, 'max_depth': 3, 'n_estimators': 100, 'subsample': 1.0}
+Best cross-validation accuracy: 0.5667
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.39      0.70      0.50        10
+           1       0.83      0.58      0.68        26
+
+    accuracy                           0.61        36
+   macro avg       0.61      0.64      0.59        36
+weighted avg       0.71      0.61      0.63        36
+
+
+=== SVM ===
+Best parameters: {'C': 1, 'gamma': 'scale', 'kernel': 'rbf'}
+Best cross-validation accuracy: 0.5410
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.28      0.50      0.36        10
+           1       0.72      0.50      0.59        26
+
+    accuracy                           0.50        36
+   macro avg       0.50      0.50      0.47        36
+weighted avg       0.60      0.50      0.53        36
+

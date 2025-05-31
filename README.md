@@ -1,11 +1,16 @@
 # ECG_HF
 高频心电信号分类尝试  
+
+## 文件管理
+
+目前每次训练的模型架构和模型都放在results
+
 数据量其实比较小，只有177条，但是质量应该还可以，可以多试试。
 其中ecg_cnn部分为心律失常代码，判断分为5级，不能直接迁移学习，但可以学习其模型架构  
-当前在用普通的cnn进行尝试  
+先用普通的cnn进行尝试  
 
 ## 调参心路
-![alt text](cnn/results/start_training_history.png)  
+
 从目前的结果看  
 在 epoch 1 后，验证集 accuracy 立即达到 72.22%，但随后同一值培训进入长达 18 轮的直线阶段，显示验证效果已经均衡且无进一步提升。
 
@@ -126,3 +131,11 @@ self.Kt = 16  # TCN卷积核大小
 
 ![alt text](3lstm/results/20250531_110718/training_accuracy.png)
 
+## 通过传统ML方法进行数据集好坏验证
+![alt text](4ml/results/20250531_113823/confusion_matrix_RandomForest.png)
+
+![alt text](4ml/results/20250531_113823/confusion_matrix_SVM.png)
+
+![alt text](4ml/results/20250531_113823/confusion_matrix_XGBoost.png)
+
+综上，采用了3种机器学习方法，通过网格优化保证参数不影响结果，但是仍然阳性分不出来，最需要改进的还是数据预处理部分，还需要提升数据量
