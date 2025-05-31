@@ -119,4 +119,10 @@ self.Kt = 16  # TCN卷积核大小
 添加 L2 正则化到卷积层；
 尝试更小的模型复杂度（如减少滤波器数量Ft）。
 
+## 换模型lstm了
+
+还是一样的问题……
+![alt text](3lstm/results/20250531_110718/confusion_matrix.png)
+
+![alt text](3lstm/results/20250531_110718/training_accuracy.png)
 

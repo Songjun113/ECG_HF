@@ -1,0 +1,54 @@
+训练时间: 20250531_104303
+全局类别分布: {0: 47, 1: 130}
+=== 第 1 折评估结果 ===
+AUC: 0.5481
+混淆矩阵:
+[[ 2 22]
+ [ 0 65]]
+
+分类报告:
+              precision    recall  f1-score   support
+
+           0       1.00      0.08      0.15        24
+           1       0.75      1.00      0.86        65
+
+    accuracy                           0.75        89
+   macro avg       0.87      0.54      0.50        89
+weighted avg       0.82      0.75      0.67        89
+
+===========================
+
+=== 第 2 折评估结果 ===
+AUC: 0.4763
+混淆矩阵:
+[[ 6 17]
+ [14 51]]
+
+分类报告:
+              precision    recall  f1-score   support
+
+           0       0.30      0.26      0.28        23
+           1       0.75      0.78      0.77        65
+
+    accuracy                           0.65        88
+   macro avg       0.53      0.52      0.52        88
+weighted avg       0.63      0.65      0.64        88
+
+===========================
+
+超参数配置:
+data_dir = raw_data
+labels_file = labels.csv
+Kt = 16
+pt = 0.5
+Ft = 10
+num_classes = 2
+batch_size = 4
+epochs = 100
+learning_rate = 0.001
+patience_es = 16
+patience_lr = 8
+factor_lr = 0.8
+min_lr = 1e-07
+n_splits = 2
+random_state = 42

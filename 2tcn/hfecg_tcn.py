@@ -1,8 +1,5 @@
 import sys
-print("Python version:", sys.version)
 import tensorflow as tf
-print("TensorFlow version:", tf.__version__)
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -12,44 +9,39 @@ from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import confusion_matrix, classification_report, roc_auc_score, roc_curve
+from sklearn.metrics import confusion_matrix, classification_report, roc_auc_score
 from tensorflow.keras.utils import to_categorical
+from imblearn.over_sampling import SMOTE
+from collections import Counter
 
-# 创建结果保存目录
-os.makedirs("results", exist_ok=True)
-
-# 集中管理的超参数配置
+# ====================== 配置模块 ======================
 class Hyperparameters:
+    """集中管理超参数"""
     def __init__(self):
-        # 数据处理参数
         self.data_dir = "raw_data"
         self.labels_file = "labels.csv"
-        
-        # 模型参数
-        self.Kt = 16  # TCN卷积核大小
-        self.pt = 0.4  # Dropout比例
-        self.Ft = 11  # 特征图数量
-        
-        # 训练参数
-        self.num_classes = 2
-        self.batch_size = 16
+        self.Kt = 8 # 卷积核大小
+        self.pt = 0.5 # dropout比例
+        self.Ft = 3 # 卷积核数量
+        self.num_classes = 2 # 类别数量
+        self.batch_size = 8 # 批大小
         self.epochs = 100
-        self.learning_rate = 1e-3
-        self.patience_es = 24  # 早停耐心值
-        self.patience_lr = 8  # 学习率降低耐心值
-        self.factor_lr = 0.8  # 学习率降低因子
-        self.min_lr = 1e-6    # 最小学习率
-        
-        # K折交叉验证参数
-        self.n_splits = 2
+        self.learning_rate = 1e-3 # 学习率
+        self.patience_es = 16 # early stopping patience
+        self.patience_lr = 8 # learning rate scheduler patience
+        self.factor_lr = 0.8 # learning rate scheduler factor
+        self.min_lr = 1e-6 # 最小学习率
+        self.n_splits = 2   # K折交叉验证折数
         self.random_state = 42
 
+# ====================== 数据处理模块 ======================
 def load_ecg_data(file_path):
+    """加载单文件ECG数据"""
     df = pd.read_csv(file_path)
-    ecg_data = df.iloc[:, 1:13].values  # 提取12导联数据
-    return ecg_data
+    return df.iloc[:, 1:13].values  # 提取12导联数据
 
 def preprocess_data(data_dir, labels_df):
+    """数据预处理"""
     ecg_samples = []
     labels = []
     for name, label in zip(labels_df['name'], labels_df['labels']):
@@ -63,51 +55,51 @@ def preprocess_data(data_dir, labels_df):
         except FileNotFoundError:
             print(f"Warning: File not found - {file_path}")
             continue
+    
     le = LabelEncoder()
-    labels = le.fit_transform(labels)
-    return np.array(ecg_samples), np.array(labels)
+    labels_encoded = le.fit_transform(labels)
+    return np.array(ecg_samples), np.array(labels_encoded)
 
+# ====================== 模型构建模块 ======================
 def build_tcn_model(input_shape, hp):
-    inputs = tf.keras.Input(shape=input_shape)
-    x = layers.Conv1D(filters=8, kernel_size=hp.Kt, padding='causal', use_bias=False)(inputs)
+    """构建TCN模型"""
+    inputs = layers.Input(shape=input_shape)
+    x = layers.Conv1D(8, hp.Kt, padding='causal', use_bias=False)(inputs)
     x = layers.BatchNormalization()(x)
     x = layers.ReLU()(x)
-
-    residual = layers.Conv1D(filters=hp.Ft, kernel_size=1, use_bias=False)(x)
+    
+    residual = layers.Conv1D(hp.Ft, 1, use_bias=False)(x)
     residual = layers.BatchNormalization()(residual)
     residual = layers.ReLU()(residual)
-
+    
     for dilation_rate in [1, 2, 4]:
-        y = layers.Conv1D(filters=hp.Ft, kernel_size=hp.Kt, padding='causal', 
-                          dilation_rate=dilation_rate, use_bias=False)(x)
+        y = layers.Conv1D(hp.Ft, hp.Kt, padding='causal', dilation_rate=dilation_rate, use_bias=False)(x)
         y = layers.BatchNormalization()(y)
         y = layers.ReLU()(y)
         y = layers.Dropout(hp.pt)(y)
-        y = layers.Conv1D(filters=hp.Ft, kernel_size=hp.Kt, padding='causal', 
-                          dilation_rate=dilation_rate, use_bias=False)(y)
+        y = layers.Conv1D(hp.Ft, hp.Kt, padding='causal', dilation_rate=dilation_rate, use_bias=False)(y)
         y = layers.BatchNormalization()(y)
         y = layers.ReLU()(y)
         y = layers.Dropout(hp.pt)(y)
         x = layers.Add()([residual, y])
         x = layers.ReLU()(x)
         residual = x
-
+    
     x = layers.Flatten()(x)
-    x = layers.Dense(hp.num_classes, 
-                     activation='softmax' if hp.num_classes > 1 else 'sigmoid')(x)
+    outputs = layers.Dense(hp.num_classes, activation='softmax' if hp.num_classes>1 else 'sigmoid')(x)
+    return models.Model(inputs, outputs)
 
-    model = models.Model(inputs=inputs, outputs=x)
-    return model
-
+# ====================== 模型工具模块 ======================
 def export_model_architecture(model, filepath):
-    """将模型架构导出到文本文件"""
+    """导出模型架构到文件"""
     with open(filepath, 'w') as f:
         model.summary(print_fn=lambda x: f.write(x + '\n'))
     print(f"模型架构已导出至: {filepath}")
 
+# ====================== 可视化模块 ======================
 def plot_training_subplots(histories, results_dir, n_splits):
-    """绘制每个折的训练/验证曲线子图"""
-    rows = int(np.ceil(n_splits / 4))  # 每行4个子图
+    """绘制训练曲线"""
+    rows = int(np.ceil(n_splits / 4))
     cols = min(n_splits, 4)
     fig, axes = plt.subplots(rows, cols, figsize=(16, 4*rows), sharex='col', sharey='row')
     
@@ -121,14 +113,12 @@ def plot_training_subplots(histories, results_dir, n_splits):
         ax.legend()
     
     plt.tight_layout()
-    plot_path = f'{results_dir}/kfold_training_subplots.png'
-    plt.savefig(plot_path)
+    plt.savefig(f'{results_dir}/kfold_training_subplots.png')
     plt.close()
-    print(f"训练曲线子图已保存至 {plot_path}")
 
 def plot_confusion_matrices(cm_list, results_dir, n_splits, class_names=['Class 0', 'Class 1']):
-    """绘制所有折的混淆矩阵子图"""
-    rows = int(np.ceil(n_splits / 4))  # 每行4个子图
+    """绘制混淆矩阵"""
+    rows = int(np.ceil(n_splits / 4))
     cols = min(n_splits, 4)
     fig, axes = plt.subplots(rows, cols, figsize=(12, 3*rows))
     
@@ -143,7 +133,6 @@ def plot_confusion_matrices(cm_list, results_dir, n_splits, class_names=['Class 
         ax.set_xticklabels(class_names)
         ax.set_yticklabels(class_names)
         
-        # 添加数值标注
         thresh = cm.max() / 2.
         for j in range(cm.shape[0]):
             for k in range(cm.shape[1]):
@@ -153,204 +142,130 @@ def plot_confusion_matrices(cm_list, results_dir, n_splits, class_names=['Class 
     
     fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.6)
     plt.tight_layout()
-    plot_path = f'{results_dir}/kfold_confusion_matrices.png'
-    plt.savefig(plot_path)
+    plt.savefig(f'{results_dir}/kfold_confusion_matrices.png')
+    plt.show()
     plt.close()
-    print(f"混淆矩阵子图已保存至 {plot_path}")
 
+# ====================== 训练与评估模块 ======================
 def calculate_class_weights(y_train):
-    """计算类别权重以处理不平衡数据"""
+    """计算类别权重"""
     from sklearn.utils.class_weight import compute_class_weight
-    
     classes = np.unique(y_train)
     class_weights = compute_class_weight('balanced', classes=classes, y=y_train)
-    
-    # 转换为字典格式，以便Keras使用
-    class_weight_dict = dict(zip(classes, class_weights))
-    print(f"计算得到的类别权重: {class_weight_dict}")
-    return class_weight_dict
+    return dict(zip(classes, class_weights))
 
-def evaluate_model(model, X_val, y_val, fold, results_summary_path):
-    """评估模型并保存详细的性能指标到总结果文件"""
-    print(f"\n正在评估第 {fold+1} 折模型...")
+def evaluate_model(model, X_val, y_val, fold, results_summary_path, num_classes):
+    """模型评估"""
+    print(f"\n评估第 {fold+1} 折模型...")
     eval_results = []
-    
-    # 获取预测概率
     y_pred_prob = model.predict(X_val)
     
-    # 对于二分类，获取正类的概率
-    if hp.num_classes == 2:
+    if num_classes == 2:
         y_pred_prob = y_pred_prob[:, 1]
-        # 计算AUC
         auc = roc_auc_score(y_val, y_pred_prob)
-        eval_results.append(f"第 {fold+1} 折 AUC: {auc:.4f}")
+        eval_results.append(f"AUC: {auc:.4f}")
+        y_pred = (y_pred_prob > 0.5).astype(int)
+    else:
+        y_pred = np.argmax(y_pred_prob, axis=1)
     
-    # 获取预测类别
-    y_pred = np.argmax(y_pred_prob, axis=1) if hp.num_classes > 2 else (y_pred_prob > 0.5).astype(int)
-    
-    # 计算混淆矩阵
     cm = confusion_matrix(y_val, y_pred)
-    eval_results.append(f"第 {fold+1} 折 混淆矩阵:\n{cm}")
-    
-    # 计算分类报告
     report = classification_report(y_val, y_pred)
-    eval_results.append(f"第 {fold+1} 折 分类报告:\n{report}")
     
-    # 写入总结果文件
     with open(results_summary_path, 'a', encoding='utf-8') as f:
-        f.write(f"\n\n=== 第 {fold+1} 折 评估结果 ===\n")
+        f.write(f"\n=== 第 {fold+1} 折评估结果 ===\n")
         f.write('\n'.join(eval_results))
-        if hp.num_classes == 2:
-            f.write(f"\nAUC: {auc:.4f}\n")
+        f.write(f"\n混淆矩阵:\n{cm}\n")
+        f.write(f"\n分类报告:\n{report}\n")
         f.write("===========================\n")
     
-    return cm, '\n'.join(eval_results)
+    return cm
+
+# ====================== 主流程模块 ======================
+
 
 def main():
-    global hp
     hp = Hyperparameters()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     results_dir = os.path.join("results", timestamp)
     os.makedirs(results_dir, exist_ok=True)
     results_summary_path = os.path.join(results_dir, 'training_summary.txt')
-
+    
+    # 数据加载与预处理
     labels_df = pd.read_csv(hp.labels_file, names=['name', 'labels'], header=0, encoding='utf-8')
     X, y = preprocess_data(hp.data_dir, labels_df)
     
-    # 打印全局类别分布并写入总文件
-    unique, counts = np.unique(y, return_counts=True)
-    global_dist = f"全局类别分布: {dict(zip(unique, counts))}"
-    print(global_dist)
+    # 全局信息记录
     with open(results_summary_path, 'w', encoding='utf-8') as f:
         f.write(f"训练时间: {timestamp}\n")
-        f.write(f"{global_dist}\n")
-        f.write("===========================\n")
+        f.write(f"全局类别分布: {dict(zip(*np.unique(y, return_counts=True)))}\n")
     
-    y_one_hot = to_categorical(y, num_classes=hp.num_classes)
+    y_one_hot = to_categorical(y, hp.num_classes)
     input_shape = X.shape[1:]
-
-    # ====================== 平衡划分逻辑修改 ======================
-    # 1. 按类别分组，获取各分类别的索引
-    class_indices = [np.where(y == c)[0] for c in range(hp.num_classes)]
-    class_counts = [len(inds) for inds in class_indices]
-    print(f"各分类别样本数: {class_counts}")
     
-    # 2. 确定每折每个类别的样本数（取最小类别样本数进行均分）
-    min_class_samples = min(class_counts)
-    n_per_fold_per_class = min_class_samples // hp.n_splits  # 每折每个类别样本数
-    if n_per_fold_per_class == 0:
-        raise ValueError("类别样本数不足，无法进行平衡划分！")
+    # 模型架构导出
+    base_model = build_tcn_model(input_shape, hp)
+    export_model_architecture(base_model, f"{results_dir}/model_architecture.txt")
     
-    # 3. 对每个类别进行欠采样（多数类）或保留（少数类）
-    balanced_class_indices = []
-    for c in range(hp.num_classes):
-        indices = class_indices[c]
-        if len(indices) > n_per_fold_per_class * hp.n_splits:
-            # 欠采样多数类，保留n_per_fold_per_class * hp.n_splits个样本
-            np.random.seed(hp.random_state)  # 固定随机种子确保可复现
-            sampled_indices = np.random.choice(indices, size=n_per_fold_per_class * hp.n_splits, replace=False)
-        else:
-            sampled_indices = indices  # 少数类直接使用全部样本
-        balanced_class_indices.append(sampled_indices)
-    
-    # 4. 自定义K折划分：每个折中每个类别取n_per_fold_per_class个样本
-    from sklearn.model_selection import KFold
-    kf = KFold(n_splits=hp.n_splits, shuffle=True, random_state=hp.random_state)
+    # K折交叉验证
+    skf = StratifiedKFold(n_splits=hp.n_splits, shuffle=True, random_state=hp.random_state)
     histories = []
     all_cms = []
-
-    # 构建并保存基础模型架构（不变）
-    base_model = build_tcn_model(input_shape, hp)
-    model_arch_path = f'{results_dir}/model_architecture.txt'
-    export_model_architecture(base_model, model_arch_path)
-    with open(results_summary_path, 'a', encoding='utf-8') as f:
-        with open(model_arch_path, 'r') as arch_f:
-            f.write("\n模型架构:\n")
-            f.write(arch_f.read())
-        f.write("===========================\n")
-
-    for fold in range(hp.n_splits):
-        train_idx = []
-        val_idx = []
-        for c in range(hp.num_classes):
-            indices = balanced_class_indices[c]
-            # 对当前类别划分第fold折的训练/验证索引
-            split = list(kf.split(indices))[fold]  # 获取第fold折的划分
-            train_c_idx, val_c_idx = split
-            train_idx.extend(indices[train_c_idx])
-            val_idx.extend(indices[val_c_idx])
-        
-        # 转换为numpy数组并打乱顺序（避免同类样本连续）
-        train_idx = np.array(train_idx)
-        val_idx = np.array(val_idx)
-        np.random.shuffle(train_idx)
-        np.random.shuffle(val_idx)
-        
-        # 打印当前折的标签分布
-        y_train_fold = y[train_idx]
-        y_val_fold = y[val_idx]
-        train_counts = np.bincount(y_train_fold)
-        val_counts = np.bincount(y_val_fold)
-        print(f"\n===== 第 {fold+1} 折 =====")
-        print(f"训练集类别分布: {dict(zip(np.unique(y_train_fold), train_counts))}")
-        print(f"验证集类别分布: {dict(zip(np.unique(y_val_fold), val_counts))}")
-        with open(results_summary_path, 'a', encoding='utf-8') as f:
-            f.write(f"\n第 {fold+1} 折训练集分布: {dict(zip(np.unique(y_train_fold), train_counts))}\n")
-            f.write(f"第 {fold+1} 折验证集分布: {dict(zip(np.unique(y_val_fold), val_counts))}\n")
-        
-        # 划分数据（与原逻辑一致）
+    
+    for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
+        print(f"\n处理第 {fold+1} 折...")
         X_train, X_val = X[train_idx], X[val_idx]
-        y_train, y_val = y_one_hot[train_idx], y_one_hot[val_idx]
+        y_train, y_val = y[train_idx], y[val_idx]  # 使用原始标签（非one-hot编码）
         
-        # 计算类别权重（可选，若需进一步平衡训练）
-        class_weight = calculate_class_weights(np.argmax(y_train, axis=1))
+        # 打印原始训练集类别分布
+        print(f"第 {fold+1} 折训练集原始类别分布: {Counter(y_train)}")
         
-        # 训练模型（与原逻辑一致）
+        # 应用SMOTE平衡训练集
+        smote = SMOTE(random_state=hp.random_state)
+        X_train_resampled, y_train_resampled = smote.fit_resample(X_train.reshape(X_train.shape[0], -1), y_train)
+        
+        # 将X_train_resampled重塑回原始形状
+        X_train_resampled = X_train_resampled.reshape(-1, X_train.shape[1], X_train.shape[2])
+        y_train_resampled_one_hot = to_categorical(y_train_resampled, hp.num_classes)
+        
+        # 打印平衡后的训练集类别分布
+        print(f"第 {fold+1} 折训练集平衡后类别分布: {Counter(y_train_resampled)}")
+        
+        # 计算类别权重（尽管SMOTE已平衡数据，权重仍可提供额外帮助）
+        class_weight = calculate_class_weights(y_train_resampled)
+        
+        # 构建并训练模型
         model = build_tcn_model(input_shape, hp)
         model.compile(optimizer=tf.keras.optimizers.Adam(hp.learning_rate),
                       loss='categorical_crossentropy',
                       metrics=['accuracy'])
         
-        callbacks = [EarlyStopping(monitor='val_loss', patience=hp.patience_es, restore_best_weights=True),
-                     ReduceLROnPlateau(monitor='val_loss', factor=hp.factor_lr, patience=hp.patience_lr, min_lr=hp.min_lr),
-                     ModelCheckpoint(f'{results_dir}/model_fold_{fold+1}.h5', monitor='val_accuracy', save_best_only=True)]
+        callbacks = [
+            EarlyStopping(monitor='val_accuracy', patience=hp.patience_es, restore_best_weights=True),
+            ReduceLROnPlateau(monitor='val_loss', factor=hp.factor_lr, patience=hp.patience_lr, min_lr=hp.min_lr),
+            ModelCheckpoint(f"{results_dir}/model_fold_{fold+1}.h5", monitor='val_accuracy', save_best_only=True)
+        ]
         
-        history = model.fit(X_train, y_train,
-                            epochs=hp.epochs,
+        history = model.fit(X_train_resampled, y_train_resampled_one_hot,
                             batch_size=hp.batch_size,
-                            validation_data=(X_val, y_val),
+                            epochs=hp.epochs,
+                            validation_data=(X_val, to_categorical(y_val, hp.num_classes)),
                             callbacks=callbacks,
                             verbose=1,
                             class_weight=class_weight)
         
         histories.append(history)
-        print(f"第 {fold+1} 折训练完成，模型保存在 {results_dir}/model_fold_{fold+1}.h5")
-        
-        # 评估模型（与原逻辑一致）
-        cm, _ = evaluate_model(model, X_val, np.argmax(y_val, axis=1), fold, results_summary_path)
+        cm = evaluate_model(model, X_val, y_val, fold, results_summary_path, hp.num_classes)
         all_cms.append(cm)
     
-    # 后续绘图和保存结果逻辑不变
+    # 结果可视化
     plot_training_subplots(histories, results_dir, hp.n_splits)
     plot_confusion_matrices(all_cms, results_dir, hp.n_splits)
     
-    # 计算并保存总体混淆矩阵到总文件
-    avg_cm = np.mean(all_cms, axis=0)
-    avg_cm_str = f"\n平均混淆矩阵:\n{avg_cm}"
-    print(avg_cm_str)
+    # 保存最终总结
     with open(results_summary_path, 'a', encoding='utf-8') as f:
-        f.write(avg_cm_str)
-        f.write("\n===========================\n")
+        f.write("\n超参数配置:\n" + "\n".join([f"{k} = {v}" for k, v in vars(hp).items()]))
     
-    # 保存超参数配置到总文件
-    hp_config = "\n超参数配置:\n" + "\n".join([f"{attr} = {value}" for attr, value in vars(hp).items()])
-    print(hp_config)
-    with open(results_summary_path, 'a', encoding='utf-8') as f:
-        f.write(hp_config)
-        f.write("\n===========================\n")
-    
-    print(f"所有 K 折训练完成，结果保存在 {results_dir} 文件夹中，总摘要文件: {results_summary_path}")
-
+    print(f"训练完成，结果保存至 {results_dir}")
 
 if __name__ == "__main__":
     main()
