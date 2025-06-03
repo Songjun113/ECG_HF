@@ -173,7 +173,7 @@ Labels shape: (16950,)
 
 可以看到验证集部分其实loss和acc都有较大波动，但是整体上在上升，说明模型在验证集上表现良好。
 
-![不平稳的表现](1cnn/results/training_history.png)
+![不平稳的表现](1cnn/results/training_history0.png)
 
 但现在的CNN还是在收敛中表现得不太平稳，而且训练进程上看，其实还有很大的优化空间。
 
@@ -193,6 +193,16 @@ Labels shape: (16950,)
 ![调整后结果 ](1cnn/results/training_history3.png)  
 表现一般，应该不是batchsize 的问题，考虑其他参数  
 
+ReduceLROnPlateau(patience=10)：当 val_loss 连续 10 轮不下降时降学习率，而EarlyStopping(patience=20)：连续 20 轮不下降时停止。  
+学习率衰减后模型仍未恢复，需要更多轮数观察，建议EarlyStopping.patience为ReduceLROnPlateau.patience的 1.5-2 倍（如patience=15和patience=30）。
+
+**结论：** 还是小batch的效果会好一些，就32已经足够，现在看来，就是初见即巅峰了
 
 
+#### 小改无用，最后尝试一下修改优化器，看看效果
+optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4) ————→  
+optimizer=tf.keras.optimizers.Adam(learning_rate=0.001)  
 
+先大步搜索，再稳步寻找
+
+![效果还不错](1cnn/results/training_history4.png)

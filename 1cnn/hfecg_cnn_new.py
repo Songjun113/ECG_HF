@@ -90,7 +90,7 @@ def build_cnn_model(input_shape):
         layers.Dense(1, activation='sigmoid')
     ])
 
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001) ,
                   loss='binary_crossentropy',
                   metrics=['accuracy'])
     return model
