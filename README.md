@@ -234,6 +234,8 @@ y_train, y_test = y[train_idx], y[val_idx]
 
 结果很烂
 
+![糟糕的结果](1cnn/results/training_history6.png)
+
 #### 需要大改模型了
 
 ```
