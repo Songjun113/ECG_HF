@@ -206,3 +206,87 @@ optimizer=tf.keras.optimizers.Adam(learning_rate=0.001)
 先大步搜索，再稳步寻找
 
 ![效果还不错](1cnn/results/training_history4.png)
+
+### 问题发现！数据集本身的分析
+
+ECG 数据具有强个体特异性（不同患者的心跳形态差异大），即使使用stratify=y划分训练 / 验证集，仍可能存在以下问题导致验证集分布局部波动：  
+
+患者样本的 **跨集污染**  
+train_test_split按样本随机划分，但 ECG 数据通常以 “患者” 为单位采集（同一患者可能有多个心跳样本）。若同一患者的样本被同时分到训练集和验证集，会导致：  
+验证集中包含与训练集高度相似的样本（同一患者的心跳），模型可能 “记住” 该患者特征，导致验证 acc 在该患者样本出现时异常升高，下一轮未出现时下降。  
+
+**改用患者级分层划分（Patient-wise Split）**，确保同一患者的所有样本仅出现在训练集或验证集中，避免跨集污染。
+
+patient_ids = np.array([os.path.basename(f).split('_beat_')[0] for f in all_files])  # 需根据实际文件名调整
+
+```
+按患者分组划分（训练集70%患者，验证集30%患者）
+gss = GroupShuffleSplit(n_splits=1, test_size=0.3, random_state=88)
+train_idx, val_idx = next(gss.split(X, y, groups=patient_ids))
+X_train, X_test = X[train_idx], X[val_idx]
+y_train, y_test = y[train_idx], y[val_idx]
+```
+
+
+#### 调整数据集划分后，引入类别权重
+
+同时还扩大了batchsize，效果不错
+
+结果很烂
+
+#### 需要大改模型了
+
+```
+def build_lead_wise_model(input_shape):
+    # 输入形状：(时序长度, 12导联)
+    inputs = layers.Input(shape=input_shape)
+    
+    # -------------------- 导联独立特征提取分支 --------------------
+    # 拆分12个导联（每个导联形状：(时序长度, 1)）
+    lead_branches = []
+    for i in range(12):
+        # 提取第i个导联（保留通道维度）
+        lead = layers.Lambda(lambda x: x[..., i:i+1])(inputs)
+        
+        # 导联独立的特征提取（参数共享：所有导联使用同一组卷积核）
+        x = layers.Conv1D(32, kernel_size=5, padding='same')(lead)  # 仅处理当前导联的时序
+        x = layers.BatchNormalization()(x)
+        x = layers.ReLU()(x)
+        x = layers.Dropout(0.2)(x)
+        
+        x = layers.Conv1D(64, kernel_size=5, padding='same')(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.ReLU()(x)
+        x = layers.MaxPooling1D(pool_size=2)(x)  # 时序长度减半
+        
+        x = layers.Conv1D(128, kernel_size=3, padding='same')(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.ReLU()(x)
+        x = layers.GlobalAveragePooling1D()(x)  # 每个导联输出128维特征
+        
+        lead_branches.append(x)
+    
+    # -------------------- 导联特征融合 --------------------
+    # 拼接12个导联的特征向量（总维度：12×128=1536）
+    merged_features = layers.Concatenate()(lead_branches)
+    
+    # -------------------- 分类头 --------------------
+    x = layers.Dense(256, activation='relu')(merged_features)  # 融合后增加非线性变换
+    x = layers.Dropout(0.3)(x)
+    outputs = layers.Dense(1, activation='sigmoid')(x)  # 二分类输出
+    
+    # 模型编译
+    model = models.Model(inputs=inputs, outputs=outputs)
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+        loss='binary_crossentropy',
+        metrics=['accuracy']
+    )
+    return model
+```
+
+我看了数据的具体情况
+
+现在的模型架构改了一下，从每个通道单独提取特征，最后合并，而不是一起输入，提取特征
+
+因为导联之间其实是正交的，几个导联之间的形态特征不可能有效
