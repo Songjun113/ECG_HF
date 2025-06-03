@@ -133,12 +133,12 @@ def main():
     model.summary()
 
     early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-6)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.8, patience=8, min_lr=1e-6)
     checkpoint = ModelCheckpoint('results/best_model.h5', monitor='val_accuracy', save_best_only=True)
 
     history = model.fit(X_train, y_train,
                         epochs=256,
-                        batch_size=32,
+                        batch_size=64,
                         validation_data=(X_test, y_test),
                         callbacks=[early_stopping, reduce_lr, checkpoint])
 

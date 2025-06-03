@@ -151,10 +151,48 @@ self.Kt = 16  # TCN卷积核大小
 
 ### CNN再验证
 
+目前使用的模型架构是：  
+Total params: 46,177  
+Trainable params: 45,729  
+Non-trainable params: 448  
+这样的模型结构优点在于： 分层特征提取架构：滤波器数量递增（32→64→128）：模拟人脑从简单到复杂的特征识别过程  
+初始层（kernel_size=5）捕捉QRS波群等宏观特征  
+深层（kernel_size=3）识别细微的ST段变化和高频噪声模式  
+符合ECG信号的多尺度特性（宏观波形+微观震荡）  
+针对高频ECG的高采样率（通常250-1000Hz）进行2倍降采样，保留关键波形特征同时减少计算量，增强对时间偏移的鲁棒性（如R波位置微小变化） 
+ layers.GlobalAveragePooling1D()替代传统的Flatten层，避免参数爆炸，保持通道维度信息（128维特征向量），特别适合处理长序列ECG数据
+
+噪声抑制能力：卷积层天然过滤肌电噪声（50-60Hz） Dropout层抑制电极接触噪声  批标准化补偿基线漂移  
+
+
+
+Data shape: (16950, 400, 12)  
+Labels shape: (16950,)
+
 在当前的数据量下，模型效果有显著改善，上升更为平缓，同时验证集上终于有了一些提升，再次验证了数据量对于模型效果的重要性。
 
-可以看到验证集部分其实loss和acc都有轻微波动，但是整体上在上升，说明模型在验证集上表现良好。
+可以看到验证集部分其实loss和acc都有较大波动，但是整体上在上升，说明模型在验证集上表现良好。
 
 ![不平稳的表现](1cnn/results/training_history.png)
 
 但现在的CNN还是在收敛中表现得不太平稳，而且训练进程上看，其实还有很大的优化空间。
+
+#### 做简单的调参，优化当前表现
+
+提升batchsize到128，训练轮数到128
+
+训练效率提升明显，深度快得多，然而验证集的波动仍然存在，而且准确率有下降，表现出难以继续收敛
+
+![不平稳的表现](1cnn/results/training_history1.png)
+
+进一步优化参数，将epochs增加到256，batchsize增加到256
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.8, patience=5, min_lr=1e-6)
+
+![调整后结果](1cnn/results/training_history2.png)  
+![调整后结果 ](1cnn/results/training_history3.png)  
+表现一般，应该不是batchsize 的问题，考虑其他参数  
+
+
+
+
