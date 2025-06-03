@@ -123,6 +123,8 @@ self.Kt = 16  # TCN卷积核大小
 增大 Dropout 比例至0.4-0.5；
 添加 L2 正则化到卷积层；
 尝试更小的模型复杂度（如减少滤波器数量Ft）。
+![alt text](2tcn/results/20250531_105425/kfold_confusion_matrices.png)  
+![alt text](2tcn/results/20250531_105425/kfold_training_subplots.png)
 
 ## 换模型lstm了
 
@@ -139,3 +141,10 @@ self.Kt = 16  # TCN卷积核大小
 ![alt text](4ml/results/20250531_113823/confusion_matrix_XGBoost.png)
 
 综上，采用了3种机器学习方法，通过网格优化保证参数不影响结果，但是仍然阳性分不出来，最需要改进的还是数据预处理部分，还需要提升数据量
+
+
+## 优化数据集，看看效果如何
+
+现在可以尝试的预处理工作  
+1 学习文章里的思路，对数据先滤波100hz以下，100hz以上全部保留，再做叠加  
+2 仍然按照之前的逻辑，但是时间窗合并保留不要合成一个，每个人随机选窗口合成100个  
