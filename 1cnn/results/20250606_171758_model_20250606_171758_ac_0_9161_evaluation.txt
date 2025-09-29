@@ -1,0 +1,22 @@
+Model Evaluation Results - model_20250606_171758_ac_0_9161 (20250606_171758)
+==================================================
+
+Accuracy: 0.9161
+Precision: 0.9175
+Recall: 0.9748
+F1-Score: 0.9453
+AUC: 0.9621
+
+Confusion Matrix:
+[[ 696  237]
+ [  68 2635]]
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.91      0.75      0.82       933
+           1       0.92      0.97      0.95      2703
+
+    accuracy                           0.92      3636
+   macro avg       0.91      0.86      0.88      3636
+weighted avg       0.92      0.92      0.91      3636

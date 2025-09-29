@@ -18,7 +18,7 @@ from collections import Counter
 class Hyperparameters:
     """集中管理超参数"""
     def __init__(self):
-        self.data_dir = "raw_data"
+        self.data_dir = "../preprocessed_data"
         self.labels_file = "labels.csv"
         self.Kt = 8 # 卷积核大小
         self.pt = 0.5 # dropout比例
@@ -40,7 +40,6 @@ def load_ecg_data(file_path):
     df = pd.read_csv(file_path)
     return df.iloc[:, 1:13].values  # 提取12导联数据
 
-# 数据加载和预处理函数（调整：接收all_files参数，避免内部重复获取）
 def preprocess_data(all_files, labels_df):
     ecg_samples = []
     labels = []
@@ -164,7 +163,6 @@ def plot_confusion_matrices(cm_list, results_dir, n_splits, class_names=['Class 
     fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.6)
     plt.tight_layout()
     plt.savefig(f'{results_dir}/kfold_confusion_matrices.png')
-    plt.show()
     plt.close()
 
 # ====================== 训练与评估模块 ======================
@@ -182,10 +180,9 @@ def evaluate_model(model, X_val, y_val, fold, results_summary_path, num_classes)
     y_pred_prob = model.predict(X_val)
     
     if num_classes == 2:
-        y_pred_prob = y_pred_prob[:, 1]
-        auc = roc_auc_score(y_val, y_pred_prob)
+        auc = roc_auc_score(y_val, y_pred_prob[:, 1])
         eval_results.append(f"AUC: {auc:.4f}")
-        y_pred = (y_pred_prob > 0.5).astype(int)
+        y_pred = (y_pred_prob[:, 1] > 0.5).astype(int)
     else:
         y_pred = np.argmax(y_pred_prob, axis=1)
     
@@ -202,8 +199,6 @@ def evaluate_model(model, X_val, y_val, fold, results_summary_path, num_classes)
     return cm
 
 # ====================== 主流程模块 ======================
-
-
 def main():
     hp = Hyperparameters()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -211,16 +206,18 @@ def main():
     os.makedirs(results_dir, exist_ok=True)
     results_summary_path = os.path.join(results_dir, 'training_summary.txt')
     
+    # 获取所有数据文件
+    all_files = [os.path.join(hp.data_dir, f) for f in os.listdir(hp.data_dir) if f.endswith('.csv')]
+    
     # 数据加载与预处理
     labels_df = pd.read_csv(hp.labels_file, names=['name', 'labels'], header=0, encoding='utf-8')
-    X, y = preprocess_data(hp.data_dir, labels_df)
+    X, y = preprocess_data(all_files, labels_df)
     
     # 全局信息记录
     with open(results_summary_path, 'w', encoding='utf-8') as f:
         f.write(f"训练时间: {timestamp}\n")
         f.write(f"全局类别分布: {dict(zip(*np.unique(y, return_counts=True)))}\n")
     
-    y_one_hot = to_categorical(y, hp.num_classes)
     input_shape = X.shape[1:]
     
     # 模型架构导出
@@ -235,58 +232,53 @@ def main():
     for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
         print(f"\n处理第 {fold+1} 折...")
         X_train, X_val = X[train_idx], X[val_idx]
-        y_train, y_val = y[train_idx], y[val_idx]  # 使用原始标签（非one-hot编码）
+        y_train, y_val = y[train_idx], y[val_idx]  # 使用原始标签
         
         # 打印原始训练集类别分布
         print(f"第 {fold+1} 折训练集原始类别分布: {Counter(y_train)}")
         
         # 应用SMOTE平衡训练集
         smote = SMOTE(random_state=hp.random_state)
-        X_train_resampled, y_train_resampled = smote.fit_resample(X_train.reshape(X_train.shape[0], -1), y_train)
-        
-        # 将X_train_resampled重塑回原始形状
+        X_train_reshaped = X_train.reshape(X_train.shape[0], -1)
+        X_train_resampled, y_train_resampled = smote.fit_resample(X_train_reshaped, y_train)
         X_train_resampled = X_train_resampled.reshape(-1, X_train.shape[1], X_train.shape[2])
-        y_train_resampled_one_hot = to_categorical(y_train_resampled, hp.num_classes)
         
         # 打印平衡后的训练集类别分布
         print(f"第 {fold+1} 折训练集平衡后类别分布: {Counter(y_train_resampled)}")
         
-        # 计算类别权重（尽管SMOTE已平衡数据，权重仍可提供额外帮助）
-        class_weight = calculate_class_weights(y_train_resampled)
-        
         # 构建并训练模型
         model = build_tcn_model(input_shape, hp)
         model.compile(optimizer=tf.keras.optimizers.Adam(hp.learning_rate),
-                      loss='categorical_crossentropy',
+                      loss='sparse_categorical_crossentropy',
                       metrics=['accuracy'])
         
         callbacks = [
             EarlyStopping(monitor='val_accuracy', patience=hp.patience_es, restore_best_weights=True),
             ReduceLROnPlateau(monitor='val_loss', factor=hp.factor_lr, patience=hp.patience_lr, min_lr=hp.min_lr),
-            ModelCheckpoint(f"{results_dir}/model_fold_{fold+1}.h5", monitor='val_accuracy', save_best_only=True)
+            ModelCheckpoint(f"{results_dir}/model_fold_{fold+1}.h5", 
+                           monitor='val_accuracy', 
+                           save_best_only=True,
+                           mode='max')
         ]
         
-        history = model.fit(X_train_resampled, y_train_resampled_one_hot,
-                            batch_size=hp.batch_size,
-                            epochs=hp.epochs,
-                            validation_data=(X_val, to_categorical(y_val, hp.num_classes)),
-                            callbacks=callbacks,
-                            verbose=1,
-                            class_weight=class_weight)
+        history = model.fit(
+            X_train_resampled, y_train_resampled,
+            epochs=hp.epochs,
+            batch_size=hp.batch_size,
+            validation_data=(X_val, y_val),
+            callbacks=callbacks,
+            verbose=1
+        )
         
         histories.append(history)
+        
+        # 评估模型
         cm = evaluate_model(model, X_val, y_val, fold, results_summary_path, hp.num_classes)
         all_cms.append(cm)
     
-    # 结果可视化
+    # 可视化结果
     plot_training_subplots(histories, results_dir, hp.n_splits)
     plot_confusion_matrices(all_cms, results_dir, hp.n_splits)
-    
-    # 保存最终总结
-    with open(results_summary_path, 'a', encoding='utf-8') as f:
-        f.write("\n超参数配置:\n" + "\n".join([f"{k} = {v}" for k, v in vars(hp).items()]))
-    
-    print(f"训练完成，结果保存至 {results_dir}")
 
 if __name__ == "__main__":
     main()

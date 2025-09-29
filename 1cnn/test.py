@@ -7,12 +7,14 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import seaborn as sns  # 添加seaborn库用于混淆矩阵可视化
 import os
 import datetime
 from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score, roc_auc_score  # 添加更多评估指标
 
 # 创建结果保存目录
 os.makedirs("results", exist_ok=True)
@@ -117,6 +119,57 @@ def plot_history(history):
     plt.savefig('results/training_history.png')
     plt.close()
 
+# 新增函数：绘制并保存混淆矩阵
+def plot_confusion_matrix(y_true, y_pred, model_name, timestamp):
+    # 计算混淆矩阵
+    cm = confusion_matrix(y_true, y_pred)
+    
+    # 绘制混淆矩阵
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=['Negative', 'Positive'], 
+                yticklabels=['Negative', 'Positive'])
+    plt.xlabel('Predicted Labels')
+    plt.ylabel('True Labels')
+    plt.title(f'Confusion Matrix - {model_name}')
+    
+    # 保存图像
+    fig_path = f"results/{timestamp}_{model_name}_confusion_matrix.png"
+    plt.savefig(fig_path)
+    plt.close()
+    
+    print(f"混淆矩阵图保存至: {fig_path}")
+    return cm
+
+# 新增函数：保存评估结果
+def save_evaluation_results(y_true, y_pred, y_prob, timestamp, model_name):
+    # 计算各项指标
+    acc = accuracy_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred)
+    recall = recall_score(y_true, y_pred)
+    f1 = f1_score(y_true, y_pred)
+    auc = roc_auc_score(y_true, y_prob)
+    cm = confusion_matrix(y_true, y_pred)
+    report = classification_report(y_true, y_pred)
+    
+    # 保存结果到文本文件
+    result_path = f"results/{timestamp}_{model_name}_evaluation.txt"
+    with open(result_path, 'w') as f:
+        f.write(f"Model Evaluation Results - {model_name} ({timestamp})\n")
+        f.write("="*50 + "\n\n")
+        f.write(f"Accuracy: {acc:.4f}\n")
+        f.write(f"Precision: {precision:.4f}\n")
+        f.write(f"Recall: {recall:.4f}\n")
+        f.write(f"F1-Score: {f1:.4f}\n")
+        f.write(f"AUC: {auc:.4f}\n\n")
+        f.write("Confusion Matrix:\n")
+        f.write(str(cm) + "\n\n")
+        f.write("Classification Report:\n")
+        f.write(report)
+    
+    print(f"评估结果保存至: {result_path}")
+    return result_path
+
 def main():
     labels_df = pd.read_csv("labels.csv", names=['name', 'labels'], header=0, encoding='utf-8')
     data_dir = "../preprocessed_data"
@@ -133,28 +186,47 @@ def main():
     model.summary()
 
     early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.8, patience=8, min_lr=1e-6)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-6)
     checkpoint = ModelCheckpoint('results/best_model.h5', monitor='val_accuracy', save_best_only=True)
 
     history = model.fit(X_train, y_train,
                         epochs=256,
-                        batch_size=64,
+                        batch_size=32,
                         validation_data=(X_test, y_test),
                         callbacks=[early_stopping, reduce_lr, checkpoint])
 
+    # 在测试集上评估模型
     test_loss, test_acc = model.evaluate(X_test, y_test)
     print(f"Test accuracy: {test_acc:.4f}")
-
+    
+    # 获取预测结果
+    y_pred_prob = model.predict(X_test)
+    y_pred = (y_pred_prob > 0.5).astype("int32").flatten()
+    
     # 获取当前时间并格式化
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     acc_str = f"{test_acc:.4f}".replace('.', '_')
-    model_name = f"results/model_{timestamp}_ac_{acc_str}.h5"
+    model_name = f"model_{timestamp}_ac_{acc_str}"
+    model_file = f"results/{model_name}.h5"
 
     # 保存模型
-    model.save(model_name)
-    print(f"模型保存至 {model_name}")
+    model.save(model_file)
+    print(f"模型保存至 {model_file}")
+    
+    # 绘制并保存混淆矩阵
+    cm = plot_confusion_matrix(y_test, y_pred, model_name, timestamp)
+    print("混淆矩阵:")
+    print(cm)
+    
+    # 保存评估结果
+    save_evaluation_results(y_test, y_pred, y_pred_prob, timestamp, model_name)
+    
+    # 输出分类报告
+    report = classification_report(y_test, y_pred)
+    print("分类报告:")
+    print(report)
 
-    # 绘图并保存
+    # 绘图并保存训练历史
     plot_history(history)
     print("训练曲线图已保存至 results/training_history.png")
 
